@@ -1,7 +1,7 @@
 #!/bin/bash
 
 VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8200}"
-TOUCHID_BIN="$HOME/vault/vault-touchid"
+TOUCHID_BIN="/usr/local/libexec/vault-touchid/vault-touchid"
 
 if [[ ! -x "$TOUCHID_BIN" ]]; then
     echo "Error: vault-touchid binary not found at ${TOUCHID_BIN}" >&2

@@ -26,22 +26,25 @@ mkdir -p ~/vault/data
 
 ### 2. Copy configuration files
 
-Copy the files from this repo into `~/vault/`:
+Copy the Vault server config into `~/vault/`:
 
 ```bash
 cp vault.hcl ~/vault/
-cp vault-touchid.swift ~/vault/
-cp vault-dev.sh ~/vault/
-cp vault-env-inject.sh ~/vault/
 ```
 
-### 3. Compile the TouchID helper
+### 3. Build and install the TouchID helper
+
+From this repo, compile the helper, sign it with the hardened runtime (which blocks `DYLD_INSERT_LIBRARIES` injection and debugger attach), and install it with the scripts into a root-owned directory so nothing running as your user can replace them:
 
 ```bash
-swiftc -O -o ~/vault/vault-touchid ~/vault/vault-touchid.swift
-codesign --force --sign - ~/vault/vault-touchid
-chmod +x ~/vault/vault-dev.sh ~/vault/vault-env-inject.sh
+swiftc -O -o vault-touchid vault-touchid.swift
+codesign --force --sign - --options runtime vault-touchid
+sudo install -d -o root -g wheel -m 755 /usr/local/libexec/vault-touchid
+sudo install -o root -g wheel -m 755 vault-touchid vault-dev.sh vault-env-inject.sh /usr/local/libexec/vault-touchid/
+rm vault-touchid
 ```
+
+Re-run these commands after any change to the scripts or the Swift source.
 
 > **Note:** If you get a `redefinition of module 'SwiftBridging'` error, rename the conflicting file:
 > ```bash
@@ -65,7 +68,7 @@ Add the following to your `~/.zshrc` (or `~/.bashrc`):
 
 ```bash
 export VAULT_ADDR="http://127.0.0.1:8200"
-vault-dev() { source ~/vault/vault-dev.sh "$@"; }
+vault-dev() { source /usr/local/libexec/vault-touchid/vault-dev.sh "$@"; }
 ```
 
 Reload your shell: `source ~/.zshrc`
@@ -112,7 +115,9 @@ This prompts for:
 1. Your Vault root token (hidden input)
 2. Your unseal keys, one per line (hidden input, blank line to finish)
 
-Both are stored in your macOS Keychain, accessible only via TouchID.
+Each is encrypted to its own Secure Enclave key that requires TouchID, and the encrypted result is stored in your macOS Keychain.
+
+Re-run `vault-dev --setup` if you add or remove a fingerprint: `.biometryCurrentSet` invalidates the Secure Enclave keys when the enrolled fingerprints change. Recover the token and unseal keys from your password manager.
 
 ## Daily Usage
 
@@ -195,7 +200,8 @@ vault-dev mystore/my-app/frontend
 
 ## Security Notes
 
-- **Vault token and unseal keys** are stored in macOS Keychain, protected by TouchID via `LAContext`. They never exist in plain text on disk.
+- **Vault token and unseal keys** are encrypted (ECDH + AES-GCM) to per-secret Secure Enclave keys created with `.biometryCurrentSet`. The Secure Enclave refuses to decrypt without a TouchID match, so reading the Keychain item directly or patching the helper yields only ciphertext. They never exist in plain text on disk.
+- **The helper and scripts** live in root-owned `/usr/local/libexec/vault-touchid/`, and the helper is signed with the hardened runtime. Your `~/.zshrc` is still writable by your user, so anything running as you could redirect the `vault-dev` function; protect your shell profile accordingly.
 - **vault.hcl** listens on `127.0.0.1:8200` — localhost only. Change `address` in the config if you need network access.
 - **TLS is disabled** since this is localhost-only. For network-accessible setups, enable TLS.
 - **Vault starts sealed** after every restart. The auto-unseal via TouchID is a convenience tradeoff — without it, you'd manually enter 3 keys every time.
@@ -209,8 +215,11 @@ Set the environment variable: `export VAULT_ADDR="http://127.0.0.1:8200"`
 ### `swiftc` fails with "redefinition of module 'SwiftBridging'"
 Rename the conflicting modulemap (see Step 3 above).
 
-### `vault-touchid` fails with OSStatus -34018
-The binary needs code signing: `codesign --force --sign - ~/vault/vault-touchid`
+### `vault-touchid` says "Stored item uses the old unprotected format"
+Your credentials were stored by an older version of the helper. Run `vault-dev --setup` again to re-store them encrypted.
+
+### `vault-touchid` says "Authentication failed" after a fingerprint change
+The Secure Enclave keys were invalidated. Run `vault-dev --setup` again.
 
 ### `vault-dev` says "vault-touchid binary not found"
-The shell function can't resolve `BASH_SOURCE`. The scripts use `$HOME/vault/vault-touchid` — make sure the binary is at `~/vault/vault-touchid`.
+The scripts use `/usr/local/libexec/vault-touchid/vault-touchid`. Re-run the install commands in step 3.

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 VAULT_ADDR="http://127.0.0.1:8200"
-TOUCHID_BIN="$HOME/vault/vault-touchid"
+TOUCHID_BIN="/usr/local/libexec/vault-touchid/vault-touchid"
 
 if [[ $# -lt 1 ]]; then
     echo "Usage:" >&2
@@ -13,7 +13,7 @@ fi
 # Check that the TouchID binary exists
 if [[ ! -x "$TOUCHID_BIN" ]]; then
     echo "Error: vault-touchid binary not found at ${TOUCHID_BIN}" >&2
-    echo "Compile it first: swiftc -O -o ~/vault/vault-touchid ~/vault/vault-touchid.swift" >&2
+    echo "Build and install it first (see README, step 3)." >&2
     return 1 2>/dev/null || exit 1
 fi
 
